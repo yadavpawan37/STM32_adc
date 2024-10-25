@@ -1,0 +1,63 @@
+#include "driver/gpio.h"
+#include "driver/timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+
+#define TRIG_PIN 12     // Trigger pin for ultrasonic sensor
+#define ECHO_PIN 14     // Echo pin for ultrasonic sensor
+#define VIBRATION_PIN 15 // Pin for vibration motor or buzzer
+
+// Function to initialize GPIO pins
+void init_gpio() {
+    gpio_set_direction(TRIG_PIN, GPIO_MODE_OUTPUT);
+    gpio_set_direction(ECHO_PIN, GPIO_MODE_INPUT);
+    gpio_set_direction(VIBRATION_PIN, GPIO_MODE_OUTPUT);
+}
+
+// Function to measure distance using ultrasonic sensor
+float measure_distance() {
+    uint32_t duration;
+    float distance;
+
+    // Send trigger pulse
+    gpio_set_level(TRIG_PIN, 1);
+    ets_delay_us(10);  // Trigger pulse of 10µs
+    gpio_set_level(TRIG_PIN, 0);
+
+    // Measure the pulse width on the echo pin
+    while (gpio_get_level(ECHO_PIN) == 0);  // Wait for echo to go high
+    duration = esp_timer_get_time();        // Record start time
+
+    while (gpio_get_level(ECHO_PIN) == 1);  // Wait for echo to go low
+    duration = esp_timer_get_time() - duration; // Calculate duration
+
+    // Calculate distance in cm (speed of sound = 343 m/s)
+    distance = (duration * 0.0343) / 2;     // Divide by 2 for round-trip distance
+
+    return distance;
+}
+
+// Task to check distance and activate vibration motor
+void ultrasonic_task(void *pvParameter) {
+    float distance;
+
+    while (1) {
+        distance = measure_distance();
+
+        if (distance < 50.0) {  // If object is closer than 50 cm
+            gpio_set_level(VIBRATION_PIN, 1); // Turn on vibration motor
+        } else {
+            gpio_set_level(VIBRATION_PIN, 0); // Turn off vibration motor
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(200));  // Delay to reduce sensor polling frequency
+    }
+}
+
+void app_main() {
+    init_gpio();  // Initialize GPIO
+
+    // Create FreeRTOS task to handle ultrasonic sensor and vibration motor
+    xTaskCreate(ultrasonic_task, "ultrasonic_task", 2048, NULL, 5, NULL);
+}
